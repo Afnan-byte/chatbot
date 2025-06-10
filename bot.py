@@ -7,10 +7,9 @@ import logging
 import random
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,7 +28,7 @@ class Form(StatesGroup):
 waiting_users = {}  # user_id: {"gender": str, "name": str, "preferred_gender": str}
 chat_pairs = {}     # user_id: partner_id
 
-# Welcome messages to make it more engaging
+# Welcome messages
 WELCOME_MESSAGES = [
     "🌟 Welcome to MalluConnect! Let's find you a great chat partner.",
     "🌴 Hello Malayali! Ready to meet someone new?",
@@ -37,7 +36,7 @@ WELCOME_MESSAGES = [
     "💬 Hi there! Let's connect you with someone special."
 ]
 
-# Connection messages to make matches feel more natural
+# Connection messages
 CONNECTION_MESSAGES = [
     "You've been connected with {gender}! Start with a hello 👋",
     "Found someone for you! They're {gender}. Break the ice!",
@@ -46,12 +45,25 @@ CONNECTION_MESSAGES = [
 ]
 
 # Inline keyboard for gender selection
-gender_kb = types.InlineKeyboardMarkup(row_width=3)
-gender_kb.add(
-    types.InlineKeyboardButton("👨 Male", callback_data="gender_male"),
-    types.InlineKeyboardButton("👩 Female", callback_data="gender_female"),
-    types.InlineKeyboardButton("🧑 Other", callback_data="gender_other")
-)
+def get_gender_keyboard(current_gender=""):
+    current_gender = current_gender.lower()
+    kb = types.InlineKeyboardMarkup(row_width=3)
+    buttons = [
+        types.InlineKeyboardButton(
+            "👨 Male" + (" ✅" if current_gender == "male" else ""),
+            callback_data="gender_male"
+        ),
+        types.InlineKeyboardButton(
+            "👩 Female" + (" ✅" if current_gender == "female" else ""),
+            callback_data="gender_female"
+        ),
+        types.InlineKeyboardButton(
+            "🧑 Other" + (" ✅" if current_gender not in ["male", "female"] else ""),
+            callback_data="gender_other"
+        )
+    ]
+    kb.add(*buttons)
+    return kb
 
 # Inline keyboard for preferred gender selection
 preferred_gender_kb = types.InlineKeyboardMarkup(row_width=3)
@@ -66,12 +78,12 @@ main_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard
 main_menu_kb.row(types.KeyboardButton("🔍 Find Partner"))
 main_menu_kb.row(types.KeyboardButton("❌ End Chat"), types.KeyboardButton("ℹ️ Help"))
 
-# Searching menu keyboard (with Cancel Search)
+# Searching menu keyboard
 searching_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
 searching_menu_kb.row(types.KeyboardButton("❌ Cancel Search"))
 searching_menu_kb.row(types.KeyboardButton("ℹ️ Help"))
 
-# Help message with better formatting
+# Help message
 HELP_TEXT = """
 <b>🤝 MalluConnect Help</b>
 
@@ -130,9 +142,8 @@ async def search_for_partner(user_id: int, message: types.Message = None):
         user_data = waiting_users.pop(user_id)
         partner_data = waiting_users.pop(partner_id)
 
-        # Send welcome messages with random connection message
+        # Send welcome messages
         connection_msg = random.choice(CONNECTION_MESSAGES).format(gender=partner_data['gender'])
-        
         await bot.send_message(
             user_id,
             f"🎉 {connection_msg}\n\n<b>Remember:</b>\n- Be respectful\n- Keep it friendly\n- Have fun!",
@@ -147,7 +158,6 @@ async def search_for_partner(user_id: int, message: types.Message = None):
         )
     else:
         if message:
-            # Add estimated wait time (random for demo)
             wait_time = random.randint(1, 5)
             await message.answer(
                 f"🔍 Searching for a partner...\n\n"
@@ -179,7 +189,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await Form.waiting_for_gender.set()
     
     await message.answer(welcome_text, reply_markup=types.ReplyKeyboardRemove())
-    await message.answer("First, please select your gender:", reply_markup=gender_kb)
+    await message.answer("First, please select your gender:", reply_markup=get_gender_keyboard())
 
 @dp.message_handler(commands=['help'])
 async def cmd_help(message: types.Message):
@@ -192,15 +202,17 @@ async def cmd_settings(message: types.Message):
         await message.answer("Please use /start first to set up your profile.")
         return
     
-    settings_kb = types.InlineKeyboardMarkup()
-    settings_kb.add(types.InlineKeyboardButton("Change Gender", callback_data="change_gender"))
-    settings_kb.add(types.InlineKeyboardButton("Change Preferences", callback_data="change_pref"))
+    settings_kb = types.InlineKeyboardMarkup(row_width=2)
+    settings_kb.add(
+        types.InlineKeyboardButton("Change Gender", callback_data="change_gender"),
+        types.InlineKeyboardButton("Change Preferences", callback_data="change_pref")
+    )
     
     current_gender = waiting_users.get(user_id, {}).get("gender", "Not set")
     current_pref = waiting_users.get(user_id, {}).get("preferred_gender", "any").capitalize()
     
     await message.answer(
-        f"⚙️ <b>Your Settings</b>\n\n"
+        f"⚙️ <b>Your Current Settings</b>\n\n"
         f"👤 Gender: {current_gender}\n"
         f"💞 Preferred Partners: {current_pref}\n\n"
         f"What would you like to change?",
@@ -210,22 +222,16 @@ async def cmd_settings(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "change_gender", state='*')
 async def change_gender(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
+    user_id = callback_query.from_user.id
+    current_gender = waiting_users.get(user_id, {}).get("gender", "").lower()
+    
     await bot.send_message(
         callback_query.from_user.id,
-        "Please select your gender:",
-        reply_markup=gender_kb
+        "Select your gender:",
+        reply_markup=get_gender_keyboard(current_gender)
     )
 
-@dp.callback_query_handler(lambda c: c.data == "change_pref", state='*')
-async def change_pref(callback_query: types.CallbackQuery):
-    await bot.answer_callback_query(callback_query.id)
-    await bot.send_message(
-        callback_query.from_user.id,
-        "Who would you like to chat with?",
-        reply_markup=preferred_gender_kb
-    )
-
-@dp.callback_query_handler(lambda c: c.data.startswith("gender_"), state=Form.waiting_for_gender)
+@dp.callback_query_handler(lambda c: c.data.startswith("gender_"), state='*')
 async def process_gender(callback_query: types.CallbackQuery, state: FSMContext):
     user_id = callback_query.from_user.id
     gender_map = {
@@ -235,23 +241,49 @@ async def process_gender(callback_query: types.CallbackQuery, state: FSMContext)
     }
     gender = gender_map.get(callback_query.data, "🧑 Other")
 
-    waiting_users[user_id] = {
-        "gender": gender,
-        "preferred_gender": "any",  # Default preference
-        "name": callback_query.from_user.full_name
-    }
+    if user_id in waiting_users:
+        waiting_users[user_id]["gender"] = gender
+    else:
+        chat = await bot.get_chat(user_id)
+        waiting_users[user_id] = {
+            "gender": gender,
+            "preferred_gender": "any",
+            "name": chat.full_name
+        }
 
+    await bot.answer_callback_query(callback_query.id, f"Gender set to {gender}")
+    
+    try:
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text=f"✅ <b>Gender updated to:</b> {gender}",
+            reply_markup=None
+        )
+    except:
+        pass
+
+    # If in initial setup, proceed to preferences
+    if await state.get_state() == Form.waiting_for_gender.state:
+        await bot.send_message(
+            callback_query.from_user.id,
+            "Now, who would you like to chat with?",
+            reply_markup=preferred_gender_kb
+        )
+    else:
+        # Return to settings after change
+        await cmd_settings(types.Message(
+            chat=callback_query.message.chat,
+            from_user=callback_query.from_user,
+            text="/settings"
+        ))
+
+@dp.callback_query_handler(lambda c: c.data == "change_pref", state='*')
+async def change_pref(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
-    await bot.edit_message_text(
-        chat_id=callback_query.message.chat.id,
-        message_id=callback_query.message.message_id,
-        text=f"✅ <b>Your gender:</b> {gender}",
-        reply_markup=None
-    )
-
     await bot.send_message(
         callback_query.from_user.id,
-        "Now, who would you like to chat with?",
+        "Who would you like to chat with?",
         reply_markup=preferred_gender_kb
     )
 
@@ -275,24 +307,34 @@ async def process_preferred_gender(callback_query: types.CallbackQuery, state: F
             "name": chat.full_name
         }
 
-    await Form.ready.set()
-    await bot.answer_callback_query(callback_query.id)
+    await bot.answer_callback_query(callback_query.id, f"Preferences set to {pref_text}")
     
-    await bot.edit_message_text(
-        chat_id=callback_query.message.chat.id,
-        message_id=callback_query.message.message_id,
-        text=f"✅ <b>Preferences set:</b> {pref_text}",
-        reply_markup=None
-    )
+    try:
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text=f"✅ <b>Preferences updated to:</b> {pref_text}",
+            reply_markup=None
+        )
+    except:
+        pass
 
-    await bot.send_message(
-        callback_query.from_user.id,
-        f"🌟 Great! Your preferences are saved.\n\n"
-        f"<b>Your gender:</b> {waiting_users[user_id].get('gender', 'Not set')}\n"
-        f"<b>Looking for:</b> {pref_text}\n\n"
-        f"Press <b>🔍 Find Partner</b> when you're ready!",
-        reply_markup=main_menu_kb
-    )
+    if await state.get_state() == Form.waiting_for_gender.state:
+        await Form.ready.set()
+        await bot.send_message(
+            callback_query.from_user.id,
+            f"🌟 Setup complete!\n\n"
+            f"<b>Your gender:</b> {waiting_users[user_id].get('gender', 'Not set')}\n"
+            f"<b>Looking for:</b> {pref_text}\n\n"
+            f"Press <b>🔍 Find Partner</b> when you're ready!",
+            reply_markup=main_menu_kb
+        )
+    else:
+        await cmd_settings(types.Message(
+            chat=callback_query.message.chat,
+            from_user=callback_query.from_user,
+            text="/settings"
+        ))
 
 @dp.message_handler(text="🔍 Find Partner", state=Form.ready)
 async def search_partner(message: types.Message):
