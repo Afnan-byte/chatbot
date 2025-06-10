@@ -66,32 +66,50 @@ def get_gender_keyboard(current_gender=""):
     return kb
 
 # Inline keyboard for preferred gender selection
-preferred_gender_kb = types.InlineKeyboardMarkup(row_width=3)
-preferred_gender_kb.add(
-    types.InlineKeyboardButton("👨 Males", callback_data="pref_male"),
-    types.InlineKeyboardButton("👩 Females", callback_data="pref_female"),
-    types.InlineKeyboardButton("🧑 Anyone", callback_data="pref_any")
-)
+def get_preferred_gender_keyboard(current_pref="any"):
+    kb = types.InlineKeyboardMarkup(row_width=3)
+    buttons = [
+        types.InlineKeyboardButton(
+            "👨 Males" + (" ✅" if current_pref == "male" else ""),
+            callback_data="pref_male"
+        ),
+        types.InlineKeyboardButton(
+            "👩 Females" + (" ✅" if current_pref == "female" else ""),
+            callback_data="pref_female"
+        ),
+        types.InlineKeyboardButton(
+            "🧑 Anyone" + (" ✅" if current_pref == "any" else ""),
+            callback_data="pref_any"
+        )
+    ]
+    kb.add(*buttons)
+    return kb
 
 # Main menu keyboard
 main_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
 main_menu_kb.row(types.KeyboardButton("🔍 Find Partner"))
-main_menu_kb.row(types.KeyboardButton("❌ End Chat"), types.KeyboardButton("ℹ️ Help"))
+main_menu_kb.row(types.KeyboardButton("⚙️ Settings"), types.KeyboardButton("ℹ️ Help"))
 
 # Searching menu keyboard
 searching_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
 searching_menu_kb.row(types.KeyboardButton("❌ Cancel Search"))
 searching_menu_kb.row(types.KeyboardButton("ℹ️ Help"))
 
+# Chatting menu keyboard
+chatting_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+chatting_menu_kb.row(types.KeyboardButton("❌ End Chat"))
+chatting_menu_kb.row(types.KeyboardButton("ℹ️ Help"))
+
 # Help message
 HELP_TEXT = """
 <b>🤝 MalluConnect Help</b>
 
 <u>📌 How to Use:</u>
-1. Set your gender when you start
-2. Use <b>🔍 Find Partner</b> to connect with someone
-3. Chat anonymously until you or your partner ends the chat
-4. Use <b>❌ End Chat</b> anytime to disconnect
+1. Press /start to begin
+2. Select your gender
+3. Use <b>🔍 Find Partner</b> to connect with someone
+4. Chat anonymously until you or your partner ends the chat
+5. Use <b>❌ End Chat</b> anytime to disconnect
 
 <u>✨ Features:</u>
 - 100% anonymous chatting
@@ -100,7 +118,7 @@ HELP_TEXT = """
 - Safe and respectful environment
 
 <u>🔧 Commands:</u>
-/start - Restart the bot
+/start - Start or restart the bot
 /help - Show this help message
 /settings - Change your preferences
 
@@ -116,7 +134,7 @@ async def search_for_partner(user_id: int, message: types.Message = None):
     if user_id in chat_pairs:
         if message:
             await message.answer("⚠️ You're already in a chat. Please end it first to find a new partner.", 
-                               reply_markup=main_menu_kb)
+                               reply_markup=chatting_menu_kb)
         return
 
     user_data = waiting_users.get(user_id, {})
@@ -147,14 +165,14 @@ async def search_for_partner(user_id: int, message: types.Message = None):
         await bot.send_message(
             user_id,
             f"🎉 {connection_msg}\n\n<b>Remember:</b>\n- Be respectful\n- Keep it friendly\n- Have fun!",
-            reply_markup=main_menu_kb
+            reply_markup=chatting_menu_kb
         )
         
         partner_connection_msg = random.choice(CONNECTION_MESSAGES).format(gender=user_data['gender'])
         await bot.send_message(
             partner_id,
             f"🎉 {partner_connection_msg}\n\n<b>Remember:</b>\n- Be respectful\n- Keep it friendly\n- Have fun!",
-            reply_markup=main_menu_kb
+            reply_markup=chatting_menu_kb
         )
     else:
         if message:
@@ -193,7 +211,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message_handler(commands=['help'])
 async def cmd_help(message: types.Message):
-    await message.answer(HELP_TEXT, reply_markup=main_menu_kb)
+    current_state = await dp.current_state(user=message.from_user.id).get_state()
+    if current_state == Form.ready.state and message.from_user.id in chat_pairs:
+        reply_markup = chatting_menu_kb
+    elif current_state == Form.ready.state:
+        reply_markup = main_menu_kb
+    else:
+        reply_markup = types.ReplyKeyboardRemove()
+    
+    await message.answer(HELP_TEXT, reply_markup=reply_markup)
 
 @dp.message_handler(commands=['settings'])
 async def cmd_settings(message: types.Message):
@@ -202,12 +228,6 @@ async def cmd_settings(message: types.Message):
         await message.answer("Please use /start first to set up your profile.")
         return
     
-    settings_kb = types.InlineKeyboardMarkup(row_width=2)
-    settings_kb.add(
-        types.InlineKeyboardButton("Change Gender", callback_data="change_gender"),
-        types.InlineKeyboardButton("Change Preferences", callback_data="change_pref")
-    )
-    
     current_gender = waiting_users.get(user_id, {}).get("gender", "Not set")
     current_pref = waiting_users.get(user_id, {}).get("preferred_gender", "any").capitalize()
     
@@ -215,8 +235,11 @@ async def cmd_settings(message: types.Message):
         f"⚙️ <b>Your Current Settings</b>\n\n"
         f"👤 Gender: {current_gender}\n"
         f"💞 Preferred Partners: {current_pref}\n\n"
-        f"What would you like to change?",
-        reply_markup=settings_kb
+        "You can change these settings below:",
+        reply_markup=types.InlineKeyboardMarkup().row(
+            types.InlineKeyboardButton("Change Gender", callback_data="change_gender"),
+            types.InlineKeyboardButton("Change Preferences", callback_data="change_pref")
+        )
     )
 
 @dp.callback_query_handler(lambda c: c.data == "change_gender", state='*')
@@ -268,7 +291,7 @@ async def process_gender(callback_query: types.CallbackQuery, state: FSMContext)
         await bot.send_message(
             callback_query.from_user.id,
             "Now, who would you like to chat with?",
-            reply_markup=preferred_gender_kb
+            reply_markup=get_preferred_gender_keyboard()
         )
     else:
         # Return to settings after change
@@ -281,10 +304,13 @@ async def process_gender(callback_query: types.CallbackQuery, state: FSMContext)
 @dp.callback_query_handler(lambda c: c.data == "change_pref", state='*')
 async def change_pref(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
+    user_id = callback_query.from_user.id
+    current_pref = waiting_users.get(user_id, {}).get("preferred_gender", "any")
+    
     await bot.send_message(
         callback_query.from_user.id,
         "Who would you like to chat with?",
-        reply_markup=preferred_gender_kb
+        reply_markup=get_preferred_gender_keyboard(current_pref)
     )
 
 @dp.callback_query_handler(lambda c: c.data.startswith("pref_"), state='*')
@@ -341,7 +367,7 @@ async def search_partner(message: types.Message):
     user_id = message.from_user.id
     if user_id in chat_pairs:
         await message.answer("⚠️ You're already in a chat. Please end it first to find a new partner.", 
-                           reply_markup=main_menu_kb)
+                           reply_markup=chatting_menu_kb)
         return
     
     await message.answer("Starting your search... 🌟", reply_markup=searching_menu_kb)
@@ -378,17 +404,30 @@ async def end_chat(message: types.Message):
     else:
         await message.answer("You're not currently in a chat.", reply_markup=main_menu_kb)
 
+@dp.message_handler(text="⚙️ Settings", state=Form.ready)
+async def settings_button(message: types.Message):
+    await cmd_settings(message)
+
 @dp.message_handler(text="ℹ️ Help", state='*')
 async def show_help(message: types.Message):
-    await message.answer(HELP_TEXT, reply_markup=main_menu_kb)
+    current_state = await dp.current_state(user=message.from_user.id).get_state()
+    if current_state == Form.ready.state and message.from_user.id in chat_pairs:
+        reply_markup = chatting_menu_kb
+    elif current_state == Form.ready.state:
+        reply_markup = main_menu_kb
+    else:
+        reply_markup = types.ReplyKeyboardRemove()
+    
+    await message.answer(HELP_TEXT, reply_markup=reply_markup)
 
 @dp.message_handler(state=Form.ready, content_types=types.ContentType.ANY)
 async def handle_messages(message: types.Message):
     user_id = message.from_user.id
 
     if user_id not in chat_pairs:
-        if message.text not in ["🔍 Find Partner", "❌ End Chat", "ℹ️ Help", "❌ Cancel Search"]:
-            await message.answer("💡 You're not connected to anyone yet. Press 🔍 Find Partner to start chatting!")
+        if message.text not in ["🔍 Find Partner", "❌ End Chat", "ℹ️ Help", "❌ Cancel Search", "⚙️ Settings"]:
+            await message.answer("💡 You're not connected to anyone yet. Press 🔍 Find Partner to start chatting!",
+                               reply_markup=main_menu_kb)
         return
 
     partner_id = chat_pairs[user_id]
