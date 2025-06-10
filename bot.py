@@ -69,8 +69,10 @@ main_menu_kb.row(types.KeyboardButton("⚙️ Settings"), types.KeyboardButton("
 searching_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 searching_menu_kb.row(types.KeyboardButton("❌ Cancel Search"))
 
+# Updated chatting menu with always-visible End Chat button
 chatting_menu_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 chatting_menu_kb.row(types.KeyboardButton("❌ End Chat"))
+chatting_menu_kb.row(types.KeyboardButton("ℹ️ Help"))
 
 HELP_TEXT = """
 <b>🤝 ChatConnect Help</b>
@@ -85,6 +87,7 @@ HELP_TEXT = """
 /start - Start or restart
 /help - Show this message
 /settings - Change your gender
+/end - End current chat
 """
 
 # Search function
@@ -162,6 +165,11 @@ async def cmd_settings(message: types.Message):
             types.InlineKeyboardButton("Change Gender", callback_data="change_gender")
         )
     )
+
+# New /end command handler
+@dp.message_handler(commands=['end'], state=Form.ready)
+async def cmd_end(message: types.Message):
+    await end_chat(message)
 
 # Callback handlers
 @dp.callback_query_handler(lambda c: c.data == "change_gender", state='*')
