@@ -5,6 +5,12 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from config import BOT_TOKEN
 import logging
 import random
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
