@@ -56,7 +56,7 @@ CONNECTION_MESSAGES = [
     "🎉 Chat started! Feel free to talk."
 ]
 
-SEARCHING_WARNING = "⏳ You're already searching. Please wait to be connected."
+SEARCHING_WARNING = "⏳ You're already searyyyyching. Please wait to be connected."
 
 # Handlers
 @dp.message_handler(commands=['start'])
