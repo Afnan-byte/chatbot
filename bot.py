@@ -57,10 +57,10 @@ WELCOME_MSG = """
 HELP_MSG = """
 <b>📚 Help Guide</b>
 
-<b>🚀 Start Chat</b> - Find a random partner
-<b>⏭️ Next Partner</b> - Skip to next partner
-<b>⏹️ End Chat</b> - End current chat
-<b>❌ Cancel Search</b> - Stop searching
+<b>🚀 Start Chat</b> - Find a random partner  
+<b>⏭️ Next Partner</b> - Skip to next partner  
+<b>⏹️ End Chat</b> - End current chat  
+<b>❌ Cancel Search</b> - Stop searching  
 
 Only text messages are supported.
 """
@@ -107,7 +107,6 @@ async def start_search(message: types.Message):
     await ChatState.searching.set()
     await message.answer("🔍 Searching for a partner...", reply_markup=get_searching_keyboard())
 
-    # Try to match immediately if possible
     if len(waiting_users) >= 2:
         user1 = waiting_users.pop(0)
         user2 = waiting_users.pop(0)
@@ -118,11 +117,9 @@ async def start_search(message: types.Message):
         await bot.send_message(user1, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
         await bot.send_message(user2, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
 
-        # FIX: Set both users' states to chatting
-        state1 = dp.current_state(chat=user1, user=user1)
-        state2 = dp.current_state(chat=user2, user=user2)
-        await state1.set_state(ChatState.chatting.state)
-        await state2.set_state(ChatState.chatting.state)
+        # Set both users' states to chatting
+        await dp.current_state(chat=user1, user=user1).set_state(ChatState.chatting.state)
+        await dp.current_state(chat=user2, user=user2).set_state(ChatState.chatting.state)
 
 @dp.message_handler(text="❌ Cancel Search", state=ChatState.searching)
 async def cancel_search(message: types.Message):
@@ -165,6 +162,7 @@ async def end_chat(message: types.Message):
     await ChatState.idle.set()
     await message.answer("❌ Chat ended.", reply_markup=get_main_keyboard())
 
+# Only allow text messages in chat
 @dp.message_handler(state=ChatState.chatting, content_types=types.ContentTypes.TEXT)
 async def forward_message(message: types.Message):
     user_id = message.from_user.id
@@ -182,13 +180,22 @@ async def forward_message(message: types.Message):
         await message.answer("⚠️ Failed to send message to partner.", reply_markup=get_main_keyboard())
         await end_chat(message)
 
+# Block all non-text messages during chatting
 @dp.message_handler(state=ChatState.chatting, content_types=types.ContentTypes.ANY)
-async def block_non_text(message: types.Message):
-    await message.reply("❌ Only text messages are allowed!", reply_markup=get_chatting_keyboard())
+async def block_non_text_chatting(message: types.Message):
+    if message.content_type != 'text':
+        await message.reply("❌ Only text messages are allowed!", reply_markup=get_chatting_keyboard())
 
+# Block all input while searching
 @dp.message_handler(state=ChatState.searching, content_types=types.ContentTypes.ANY)
 async def block_while_searching(message: types.Message):
     await message.reply("⏳ Please wait while we find you a partner...", reply_markup=get_searching_keyboard())
+
+# Fallback: block media in all other states
+@dp.message_handler(content_types=types.ContentTypes.ANY, state='*')
+async def block_global_non_text(message: types.Message):
+    if message.content_type != 'text':
+        await message.reply("❌ This bot only supports text messages.", reply_markup=get_main_keyboard())
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
