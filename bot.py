@@ -71,13 +71,12 @@ async def send_welcome(message: types.Message):
     user_id = message.from_user.id
 
     # Clean up any existing connections
-    if user_id in active_pairs:
-        partner_id = active_pairs[user_id]
-        del active_pairs[partner_id]
+    partner_id = active_pairs.get(user_id)
+    if partner_id:
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "⚠️ Your partner disconnected.", reply_markup=get_main_keyboard())
 
-    if user_id in active_pairs:
-        del active_pairs[user_id]
+    active_pairs.pop(user_id, None)
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
@@ -103,7 +102,9 @@ async def start_search(message: types.Message):
         await message.answer("⚠️ You're already in a chat!", reply_markup=get_chatting_keyboard())
         return
 
-    waiting_users.append(user_id)
+    if user_id not in waiting_users:
+        waiting_users.append(user_id)
+
     await ChatState.searching.set()
     await message.answer("🔍 Searching for a partner...", reply_markup=get_searching_keyboard())
 
@@ -137,11 +138,10 @@ async def next_partner(message: types.Message):
     partner_id = active_pairs.get(user_id)
 
     if partner_id:
-        del active_pairs[partner_id]
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "⚠️ Your partner left the chat.", reply_markup=get_main_keyboard())
 
-    if user_id in active_pairs:
-        del active_pairs[user_id]
+    active_pairs.pop(user_id, None)
 
     await start_search(message)
 
@@ -151,18 +151,16 @@ async def end_chat(message: types.Message):
     partner_id = active_pairs.get(user_id)
 
     if partner_id:
-        del active_pairs[partner_id]
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "❌ Chat ended by partner.", reply_markup=get_main_keyboard())
 
-    if user_id in active_pairs:
-        del active_pairs[user_id]
+    active_pairs.pop(user_id, None)
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
     await ChatState.idle.set()
     await message.answer("❌ Chat ended.", reply_markup=get_main_keyboard())
 
-# Only allow text messages in chat
 @dp.message_handler(state=ChatState.chatting, content_types=types.ContentTypes.TEXT)
 async def forward_message(message: types.Message):
     user_id = message.from_user.id
@@ -180,18 +178,15 @@ async def forward_message(message: types.Message):
         await message.answer("⚠️ Failed to send message to partner.", reply_markup=get_main_keyboard())
         await end_chat(message)
 
-# Block all non-text messages during chatting
 @dp.message_handler(state=ChatState.chatting, content_types=types.ContentTypes.ANY)
 async def block_non_text_chatting(message: types.Message):
     if message.content_type != 'text':
         await message.reply("❌ Only text messages are allowed!", reply_markup=get_chatting_keyboard())
 
-# Block all input while searching
 @dp.message_handler(state=ChatState.searching, content_types=types.ContentTypes.ANY)
 async def block_while_searching(message: types.Message):
     await message.reply("⏳ Please wait while we find you a partner...", reply_markup=get_searching_keyboard())
 
-# Fallback: block media in all other states
 @dp.message_handler(content_types=types.ContentTypes.ANY, state='*')
 async def block_global_non_text(message: types.Message):
     if message.content_type != 'text':
