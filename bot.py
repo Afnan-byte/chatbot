@@ -57,10 +57,10 @@ WELCOME_MSG = """
 HELP_MSG = """
 <b>📚 Help Guide</b>
 
-<b>🚀 Start Chat</b> - Find a random partner
-<b>⏭️ Next Partner</b> - Skip to next partner
-<b>⏹️ End Chat</b> - End current chat
-<b>❌ Cancel Search</b> - Stop searching
+<b>🚀 Start Chat</b> - Find a random partner  
+<b>⏭️ Next Partner</b> - Skip to next partner  
+<b>⏹️ End Chat</b> - End current chat  
+<b>❌ Cancel Search</b> - Stop searching  
 
 Only text messages are supported.
 """
@@ -71,13 +71,11 @@ async def send_welcome(message: types.Message):
     user_id = message.from_user.id
 
     # Clean up any existing connections
-    if user_id in active_pairs:
-        partner_id = active_pairs[user_id]
-        del active_pairs[partner_id]
+    partner_id = active_pairs.pop(user_id, None)
+    if partner_id:
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "⚠️ Your partner disconnected.", reply_markup=get_main_keyboard())
 
-    if user_id in active_pairs:
-        del active_pairs[user_id]
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
@@ -103,11 +101,12 @@ async def start_search(message: types.Message):
         await message.answer("⚠️ You're already in a chat!", reply_markup=get_chatting_keyboard())
         return
 
-    waiting_users.append(user_id)
+    if user_id not in waiting_users:
+        waiting_users.append(user_id)
+
     await ChatState.searching.set()
     await message.answer("🔍 Searching for a partner...", reply_markup=get_searching_keyboard())
 
-    # Try to match immediately if possible
     if len(waiting_users) >= 2:
         user1 = waiting_users.pop(0)
         user2 = waiting_users.pop(0)
@@ -118,16 +117,12 @@ async def start_search(message: types.Message):
         await bot.send_message(user1, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
         await bot.send_message(user2, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
 
-        # FIX: Set both users' states to chatting
-        state1 = dp.current_state(chat=user1, user=user1)
-        state2 = dp.current_state(chat=user2, user=user2)
-        await state1.set_state(ChatState.chatting.state)
-        await state2.set_state(ChatState.chatting.state)
+        await dp.current_state(user=user1).set_state(ChatState.chatting.state)
+        await dp.current_state(user=user2).set_state(ChatState.chatting.state)
 
 @dp.message_handler(text="❌ Cancel Search", state=ChatState.searching)
 async def cancel_search(message: types.Message):
     user_id = message.from_user.id
-
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
@@ -137,28 +132,23 @@ async def cancel_search(message: types.Message):
 @dp.message_handler(text="⏭️ Next Partner", state=ChatState.chatting)
 async def next_partner(message: types.Message):
     user_id = message.from_user.id
-    partner_id = active_pairs.get(user_id)
+    partner_id = active_pairs.pop(user_id, None)
 
     if partner_id:
-        del active_pairs[partner_id]
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "⚠️ Your partner left the chat.", reply_markup=get_main_keyboard())
-
-    if user_id in active_pairs:
-        del active_pairs[user_id]
 
     await start_search(message)
 
 @dp.message_handler(text="⏹️ End Chat", state='*')
 async def end_chat(message: types.Message):
     user_id = message.from_user.id
-    partner_id = active_pairs.get(user_id)
+    partner_id = active_pairs.pop(user_id, None)
 
     if partner_id:
-        del active_pairs[partner_id]
+        active_pairs.pop(partner_id, None)
         await bot.send_message(partner_id, "❌ Chat ended by partner.", reply_markup=get_main_keyboard())
 
-    if user_id in active_pairs:
-        del active_pairs[user_id]
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
