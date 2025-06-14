@@ -2,6 +2,7 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.utils.exceptions import BotBlocked, ChatNotFound, UserDeactivated
 import logging
 import os
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Initialize bot
@@ -70,11 +71,13 @@ Only text messages are supported.
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
 
-    # Clean up any existing connections
     partner_id = active_pairs.get(user_id)
     if partner_id:
         active_pairs.pop(partner_id, None)
-        await bot.send_message(partner_id, "⚠️ Your partner disconnected.", reply_markup=get_main_keyboard())
+        try:
+            await bot.send_message(partner_id, "⚠️ Your partner disconnected.", reply_markup=get_main_keyboard())
+        except (BotBlocked, ChatNotFound, UserDeactivated) as e:
+            logger.warning(f"Failed to notify partner {partner_id}: {e}")
 
     active_pairs.pop(user_id, None)
     if user_id in waiting_users:
@@ -86,7 +89,6 @@ async def send_welcome(message: types.Message):
 @dp.message_handler(text="ℹ️ Help", state='*')
 async def show_help(message: types.Message):
     current_state = await dp.current_state(user=message.from_user.id).get_state()
-
     if current_state == ChatState.chatting.state:
         await message.answer(HELP_MSG, reply_markup=get_chatting_keyboard())
     elif current_state == ChatState.searching.state:
@@ -115,17 +117,22 @@ async def start_search(message: types.Message):
         active_pairs[user1] = user2
         active_pairs[user2] = user1
 
-        await bot.send_message(user1, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
-        await bot.send_message(user2, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
+        try:
+            await bot.send_message(user1, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
+            await bot.send_message(user2, "💬 You're now connected! Say hi!", reply_markup=get_chatting_keyboard())
+        except (BotBlocked, ChatNotFound, UserDeactivated) as e:
+            logger.warning(f"Failed to connect users {user1} and {user2}: {e}")
+            active_pairs.pop(user1, None)
+            active_pairs.pop(user2, None)
+            await ChatState.idle.set()
+            return
 
-        # Set both users' states to chatting
         await dp.current_state(chat=user1, user=user1).set_state(ChatState.chatting.state)
         await dp.current_state(chat=user2, user=user2).set_state(ChatState.chatting.state)
 
 @dp.message_handler(text="❌ Cancel Search", state=ChatState.searching)
 async def cancel_search(message: types.Message):
     user_id = message.from_user.id
-
     if user_id in waiting_users:
         waiting_users.remove(user_id)
 
@@ -139,10 +146,12 @@ async def next_partner(message: types.Message):
 
     if partner_id:
         active_pairs.pop(partner_id, None)
-        await bot.send_message(partner_id, "⚠️ Your partner left the chat.", reply_markup=get_main_keyboard())
+        try:
+            await bot.send_message(partner_id, "⚠️ Your partner left the chat.", reply_markup=get_main_keyboard())
+        except (BotBlocked, ChatNotFound, UserDeactivated) as e:
+            logger.warning(f"Next Partner: {partner_id} error: {e}")
 
     active_pairs.pop(user_id, None)
-
     await start_search(message)
 
 @dp.message_handler(text="⏹️ End Chat", state='*')
@@ -152,7 +161,10 @@ async def end_chat(message: types.Message):
 
     if partner_id:
         active_pairs.pop(partner_id, None)
-        await bot.send_message(partner_id, "❌ Chat ended by partner.", reply_markup=get_main_keyboard())
+        try:
+            await bot.send_message(partner_id, "❌ Chat ended by partner.", reply_markup=get_main_keyboard())
+        except (BotBlocked, ChatNotFound, UserDeactivated) as e:
+            logger.warning(f"End Chat: {partner_id} error: {e}")
 
     active_pairs.pop(user_id, None)
     if user_id in waiting_users:
@@ -173,9 +185,9 @@ async def forward_message(message: types.Message):
 
     try:
         await bot.send_message(partner_id, f"👤: {message.text}")
-    except Exception as e:
-        logger.error(f"Error forwarding message: {e}")
-        await message.answer("⚠️ Failed to send message to partner.", reply_markup=get_main_keyboard())
+    except (BotBlocked, ChatNotFound, UserDeactivated) as e:
+        logger.warning(f"Message Forward Failed: {e}")
+        await message.answer("⚠️ Partner is unavailable. Ending chat.", reply_markup=get_main_keyboard())
         await end_chat(message)
 
 @dp.message_handler(state=ChatState.chatting, content_types=types.ContentTypes.ANY)
@@ -193,4 +205,5 @@ async def block_global_non_text(message: types.Message):
         await message.reply("❌ This bot only supports text messages.", reply_markup=get_main_keyboard())
 
 if __name__ == '__main__':
+    print("✅ Bot is running...")
     executor.start_polling(dp, skip_updates=True)
